@@ -10,7 +10,6 @@ import (
 	"errors"
 	"reflect"
 	"strings"
-	"time"
 
 	"github.com/m29h/xml"
 
@@ -164,9 +163,8 @@ type security struct {
 	XMLName        xml.Name `xml:"http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd Security"`
 	MustUnderstand int      `xml:"http://schemas.xmlsoap.org/soap/envelope/ mustUnderstand,attr"`
 
-	BinarySecurityToken binarySecurityToken
-	Signature           signature
-	Timestamp           timestamp
+	Signature signature
+	Timestamp timestamp
 }
 
 func getWsuID() string {
@@ -239,15 +237,7 @@ func (w *WSSEAuthInfo) securityHeader(body any) (security, error) {
 	if err := w.addSignature(body); err != nil {
 		return security{}, err
 	}
-	timestamp := timestamp{
-		WsuID:   "",
-		Created: time.Now().UTC().Format("2006-01-02T15:04:05.999Z07:00"),
-		Expires: time.Now().UTC().Add(10 * time.Second).Format("2006-01-02T15:04:05.999Z07:00"),
-	}
 
-	if err := w.addSignature(&timestamp); err != nil {
-		return security{}, err
-	}
 	// 2. Set the DigestValue then sign the 'SignedInfo' struct
 	signedInfo := signedInfo{
 		CanonicalizationMethod: canonicalizationMethod{
@@ -275,16 +265,9 @@ func (w *WSSEAuthInfo) securityHeader(body any) (security, error) {
 	}
 
 	encodedSignatureValue := base64.StdEncoding.EncodeToString(signatureValue)
-	encodedCertificateValue := base64.StdEncoding.EncodeToString(w.certDER.Certificate[0])
 	securityTokenID := getWsuID()
 	secHeader := security{
 		MustUnderstand: 1,
-		BinarySecurityToken: binarySecurityToken{
-			WsuID:        securityTokenID,
-			EncodingType: encTypeBinary,
-			ValueType:    valTypeX509Token,
-			Value:        encodedCertificateValue,
-		},
 		Signature: signature{
 			SignedInfo:     signedInfo,
 			SignatureValue: encodedSignatureValue,
@@ -297,7 +280,6 @@ func (w *WSSEAuthInfo) securityHeader(body any) (security, error) {
 				},
 			},
 		},
-		Timestamp: timestamp,
 	}
 	w.sigRef = make([]signatureReference, 0)
 	return secHeader, nil
