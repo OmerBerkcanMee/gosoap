@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/m29h/xml"
+	"github.com/OmerBerkcanMee/xml"
 )
 
 // Response contains the result of the request.

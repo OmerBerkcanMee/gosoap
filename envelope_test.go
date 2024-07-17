@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/m29h/xml"
+	"github.com/OmerBerkcanMee/xml"
 )
 
 var envelopeName = xml.Name{

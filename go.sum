@@ -1,3 +1,5 @@
+github.com/OmerBerkcanMee/xml v1.1.0 h1:0iWEpepIkBjrHPhD7q25ybAa0oYPSIHCTcaz2FsFsqU=
+github.com/OmerBerkcanMee/xml v1.1.0/go.mod h1:Ei1bJCroozXUc5LhDgCzGaU3XjDKMiuZDMCZnbNkcoA=
 github.com/beevik/etree v1.4.0 h1:oz1UedHRepuY3p4N5OjE0nK1WLCqtzHf25bxplKOHLs=
 github.com/beevik/etree v1.4.0/go.mod h1:cyWiXwGoasx60gHvtnEh5x8+uIjUVnjWqBvEnhnqKDA=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
