@@ -64,15 +64,6 @@ func (c *Client) Do(ctx context.Context, action string, request any, response an
 	}
 	defer res.Body.Close()
 
-	//bodyBytes, err := ioutil.ReadAll(res.Body)
-	//if err != nil {
-	//	panic(err)
-	//}
-
-	//fmt.Println(string(bodyBytes))
-
-	//if err
-
 	respEnvelope := new(SOAPEnvelopeResponse)
 	respEnvelope.Body = SOAPBodyResponse{
 		Content: response,
