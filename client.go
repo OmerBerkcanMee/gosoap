@@ -49,8 +49,8 @@ func (c *Client) SettHTTPClient(http *http.Client) {
 // is deserialized into the response argument.
 // Any errors that are encountered are returned.
 // If a SOAP fault is detected, then the 'details' property of the SOAP envelope will be appended into the faultDetailType argument.
-func (c *Client) Do(ctx context.Context, action string, request any, response any, faultDetail FaultError) error {
-
+func (c *Client) Do(ctx context.Context, action string, request any, response any) error {
+	var faultDetail FaultError
 	req := NewRequest(action, c.url, request, response, nil)
 	req.AddHeader(c.headers...)
 	httpReq, err := req.httpRequest()
