@@ -3,10 +3,11 @@
 package soap
 
 import (
+	"bytes"
 	"context"
+	"encoding/xml"
 	"errors"
-	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 )
 
@@ -48,7 +49,7 @@ func (c *Client) SettHTTPClient(http *http.Client) {
 // is deserialized into the response argument.
 // Any errors that are encountered are returned.
 // If a SOAP fault is detected, then the 'details' property of the SOAP envelope will be appended into the faultDetailType argument.
-func (c *Client) Do(ctx context.Context, action string, request any, response any) error {
+func (c *Client) Do(ctx context.Context, action string, request any, response any, faultDetail FaultError) error {
 
 	req := NewRequest(action, c.url, request, response, nil)
 	req.AddHeader(c.headers...)
@@ -57,27 +58,53 @@ func (c *Client) Do(ctx context.Context, action string, request any, response an
 		return err
 	}
 
-	httpResp, err := c.http.Do(httpReq.WithContext(ctx))
+	res, err := c.http.Do(httpReq.WithContext(ctx))
 	if err != nil {
 		return err
 	}
-	defer httpResp.Body.Close()
+	defer res.Body.Close()
 
-	bodyBytes, err := ioutil.ReadAll(httpResp.Body)
-	if err != nil {
-		panic(err)
+	//bodyBytes, err := ioutil.ReadAll(res.Body)
+	//if err != nil {
+	//	panic(err)
+	//}
+
+	//fmt.Println(string(bodyBytes))
+
+	//if err
+
+	respEnvelope := new(SOAPEnvelopeResponse)
+	respEnvelope.Body = SOAPBodyResponse{
+		Content: response,
+		Fault: &SOAPFault{
+			Detail: faultDetail,
+		},
 	}
 
-	fmt.Println(string(bodyBytes))
+	// we need to store the body in case of an error
+	// to return the right HTTPError/ResponseBody
+	body := res.Body
+	var cachedErrorBody []byte
+	if res.StatusCode == 500 {
+		cachedErrorBody, err = io.ReadAll(res.Body)
+		if err != nil {
+			return err
+		}
+		body = io.NopCloser(bytes.NewReader(cachedErrorBody))
+	}
 
-	resp := newResponse(httpResp, req)
-	err = resp.deserialize()
-	if err != nil {
+	var dec SOAPDecoder
+	dec = xml.NewDecoder(body)
+	if err := dec.Decode(respEnvelope); err != nil {
+		// the response doesn't contain a Fault/SOAPBody, so we return the original body
+		if res.StatusCode == 500 {
+			return &HTTPError{
+				StatusCode:   res.StatusCode,
+				ResponseBody: cachedErrorBody,
+			}
+		}
 		return err
 	}
-	if resp.Fault() != nil {
-		return resp.Fault()
-	}
 
-	return nil
+	return respEnvelope.Body.ErrorFromFault()
 }

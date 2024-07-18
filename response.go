@@ -1,64 +1,173 @@
 package soap
 
 import (
-	"mime"
-	"net/http"
-	"strings"
-
-	"github.com/OmerBerkcanMee/xml"
+	"encoding/xml"
+	"fmt"
 )
 
-// Response contains the result of the request.
-type Response struct {
-	*http.Response
-
-	body  interface{}
-	fault *Fault
+type SOAPEncoder interface {
+	Encode(v interface{}) error
+	Flush() error
 }
 
-func newResponse(httpResp *http.Response, req *Request) *Response {
-	return &Response{
-		Response: httpResp,
-		body:     req.resp,
-	}
+type SOAPDecoder interface {
+	Decode(v interface{}) error
 }
 
-// Body returns the SOAP body. The value comes from what was passed into the linked request.
-func (r *Response) Body() interface{} {
-	return r.body
+type SOAPEnvelopeResponse struct {
+	XMLName     xml.Name `xml:"http://schemas.xmlsoap.org/soap/envelope/ Envelope"`
+	Header      *SOAPHeaderResponse
+	Body        SOAPBodyResponse
+	Attachments []MIMEMultipartAttachment `xml:"attachments,omitempty"`
 }
 
-// Fault returns the SOAP fault encountered, if present
-func (r *Response) Fault() *Fault {
-	return r.fault
+type SOAPEnvelope struct {
+	XMLName xml.Name      `xml:"soap:Envelope"`
+	XmlNS   string        `xml:"xmlns:soap,attr"`
+	Headers []interface{} `xml:"soap:Header"`
+	Body    SOAPBody
 }
 
-func (r *Response) deserialize() error {
-	mediaType, mediaParams, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil {
-		return err
+type SOAPHeaderResponse struct {
+	XMLName xml.Name `xml:"Header"`
+
+	Headers []interface{}
+}
+
+type SOAPBody struct {
+	XMLName xml.Name `xml:"soap:Body"`
+
+	Content interface{} `xml:",omitempty"`
+
+	// faultOccurred indicates whether the XML body included a fault;
+	// we cannot simply store SOAPFault as a pointer to indicate this, since
+	// fault is initialized to non-nil with user-provided detail type.
+	faultOccurred bool
+	Fault         *SOAPFault `xml:",omitempty"`
+}
+
+type SOAPBodyResponse struct {
+	XMLName xml.Name `xml:"Body"`
+
+	Content interface{} `xml:",omitempty"`
+
+	// faultOccurred indicates whether the XML body included a fault;
+	// we cannot simply store SOAPFault as a pointer to indicate this, since
+	// fault is initialized to non-nil with user-provided detail type.
+	faultOccurred bool
+	Fault         *SOAPFault `xml:",omitempty"`
+}
+
+type MIMEMultipartAttachment struct {
+	Name string
+	Data []byte
+}
+
+// UnmarshalXML unmarshals SOAPBody xml
+func (b *SOAPBodyResponse) UnmarshalXML(d *xml.Decoder, _ xml.StartElement) error {
+	if b.Content == nil {
+		return xml.UnmarshalError("Content must be a pointer to a struct")
 	}
 
-	envelope := NewEnvelope(r.body)
+	var (
+		token    xml.Token
+		err      error
+		consumed bool
+	)
 
-	if strings.HasPrefix(mediaType, "multipart/") {
-		// Here we handle any SOAP requests embedded in a MIME multipart response.
-		err = newXopDecoder(r.Response.Body, mediaParams).decode(envelope)
-	} else if strings.Contains(mediaType, "text/xml") {
-		// This is normal SOAP XML response handling.
-		err = xml.NewDecoder(r.Response.Body).Decode(&envelope)
-	} else {
-		err = ErrUnsupportedContentType
-	}
+Loop:
+	for {
+		if token, err = d.Token(); err != nil {
+			return err
+		}
 
-	if err != nil {
-		return err
-	}
+		if token == nil {
+			break
+		}
 
-	// Propagate the changes from parsing the envelope to the response struct
-	if envelope.Body.Fault != nil {
-		r.fault = envelope.Body.Fault
+		switch se := token.(type) {
+		case xml.StartElement:
+			if consumed {
+				return xml.UnmarshalError("Found multiple elements inside SOAP body; not wrapped-document/literal WS-I compliant")
+			} else if se.Name.Space == "http://schemas.xmlsoap.org/soap/envelope/" && se.Name.Local == "Fault" {
+				b.Content = nil
+
+				b.faultOccurred = true
+				err = d.DecodeElement(b.Fault, &se)
+				if err != nil {
+					return err
+				}
+
+				consumed = true
+			} else {
+				if err = d.DecodeElement(b.Content, &se); err != nil {
+					return err
+				}
+
+				consumed = true
+			}
+		case xml.EndElement:
+			break Loop
+		}
 	}
 
 	return nil
+}
+
+func (b *SOAPBody) ErrorFromFault() error {
+	if b.faultOccurred {
+		return b.Fault
+	}
+	b.Fault = nil
+	return nil
+}
+
+func (b *SOAPBodyResponse) ErrorFromFault() error {
+	if b.faultOccurred {
+		return b.Fault
+	}
+	b.Fault = nil
+	return nil
+}
+
+type DetailContainer struct {
+	Detail interface{}
+}
+
+type FaultError interface {
+	// ErrorString should return a short version of the detail as a string,
+	// which will be used in place of <faultstring> for the error message.
+	// Set "HasData()" to always return false if <faultstring> error
+	// message is preferred.
+	ErrorString() string
+	// HasData indicates whether the composite fault contains any data.
+	HasData() bool
+}
+
+type SOAPFault struct {
+	XMLName xml.Name `xml:"http://schemas.xmlsoap.org/soap/envelope/ Fault"`
+
+	Code   string     `xml:"faultcode,omitempty"`
+	String string     `xml:"faultstring,omitempty"`
+	Actor  string     `xml:"faultactor,omitempty"`
+	Detail FaultError `xml:"detail,omitempty"`
+}
+
+func (f *SOAPFault) Error() string {
+	if f.Detail != nil && f.Detail.HasData() {
+		return f.Detail.ErrorString()
+	}
+	return f.String
+}
+
+// HTTPError is returned whenever the HTTP request to the server fails
+type HTTPError struct {
+	//StatusCode is the status code returned in the HTTP response
+	StatusCode int
+	//ResponseBody contains the body returned in the HTTP response
+	ResponseBody []byte
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("HTTP Status %d: %s", e.StatusCode, string(e.ResponseBody))
 }
